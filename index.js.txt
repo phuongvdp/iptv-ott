@@ -1,0 +1,90 @@
+export default async function handler(req, res) {
+  const SOURCES = [
+    "https://apithethao1.vercel.app/quechoatv",
+    "https://apithethao1.vercel.app/luongsontv",
+    "https://apithethao1.vercel.app/gavangtv",
+    "https://apithethao1.vercel.app/xoilactv",
+    "https://apithethao1.vercel.app/colatv",
+    "https://apithethao1.vercel.app/cumeotv",
+  ];
+
+  if (!global.__cache) global.__cache = {};
+  const key = "iptv";
+  const now = Date.now();
+
+  if (global.__cache[key] && now - global.__cache[key].time < 120000) {
+    return send(global.__cache[key].data, req, res);
+  }
+
+  let channels = [];
+
+  for (const url of SOURCES) {
+    try {
+      const r = await fetch(url);
+      const data = await r.json();
+
+      let items = [];
+
+      if (Array.isArray(data)) items = data;
+      else if (data.channels) items = data.channels;
+
+      for (const i of items) {
+        if (!i.url && !i.link) continue;
+
+        channels.push({
+          name: i.name || i.title || "Live TV",
+          url: i.url || i.link,
+          group: url.split("/").pop()
+        });
+      }
+    } catch {}
+  }
+
+  const result = {
+    total: channels.length,
+    updated: new Date().toISOString(),
+    channels
+  };
+
+  global.__cache[key] = { time: now, data: result };
+
+  return send(result, req, res);
+}
+
+function send(data, req, res) {
+  const type = req.query.type || "json";
+
+  if (type === "m3u") {
+    let m3u = "#EXTM3U\n";
+
+    data.channels.forEach(c => {
+      m3u += `#EXTINF:-1 group-title=\"${c.group}\",${c.name}\n${c.url}\n`;
+    });
+
+    res.setHeader("Content-Type", "text/plain");
+    return res.send(m3u);
+  }
+
+  if (type === "dashboard") {
+    res.setHeader("Content-Type", "text/html");
+    return res.send(`
+<html>
+<body style="background:#111;color:#0f0;font-family:Arial">
+<h2>IPTV DASHBOARD</h2>
+<button onclick="load()">Load</button>
+<pre id="out"></pre>
+<script>
+async function load(){
+ const r = await fetch('/api/index');
+ const j = await r.json();
+ document.getElementById('out').innerText =
+ JSON.stringify(j,null,2);
+}
+</script>
+</body>
+</html>
+`);
+  }
+
+  res.json(data);
+}
